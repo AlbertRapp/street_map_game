@@ -1,0 +1,143 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r}
+setwd(here::here('street_map_game/'))
+library(tidyverse)
+library(sf)
+library(osmdata)
+library(ggmap)
+```
+
+
+```{r}
+getbb('Ulm')
+bbx <- matrix(
+  data = c(9.93, 10.04283, 48.37, 48.44),
+  nrow = 2,
+  ncol = 2,
+  byrow = T,
+  dimnames = list(c('x', 'y'), c('min', 'max'))
+)
+
+query <- bbx %>% 
+  opq() %>% 
+  add_osm_feature(
+    key = 'highway',
+    value = c('motorway', 'trunk', 'primary', 'secondary', 
+              'tertiary', 'unclassified', 'residential',
+              'motorway_link', 'trunk_link', 'primary_link', 
+              'secondary_link')
+  )
+
+sf_data <- osmdata_sf(query)
+```
+
+```{r}
+boundary_query <- bbx %>% 
+  opq() %>% 
+  add_osm_feature(
+    key = 'boundary',
+    value = 'administrative'
+  )
+
+boundary_sf_data <- osmdata_sf(boundary_query)
+
+boundary_ulm <- boundary_sf_data$osm_multipolygons %>% 
+  filter(name == 'Ulm') %>% 
+  pull(geometry)
+
+inds_contained <- st_contains(boundary_ulm, sf_data$osm_lines) %>% unlist()
+street_lines_ulm <- sf_data$osm_lines %>% slice(inds_contained)
+```
+
+
+
+
+
+```{r}
+background_data <- get_map(bbx, maptype = "toner-background")
+
+ggmap(background_data) +
+  geom_sf(
+    data = street_lines_ulm, 
+    inherit.aes = F,
+    size = 0.75
+  )
+```
+
+```{r}
+street <- street_lines_ulm %>% 
+  filter(name == 'Franzenhauserweg') %>% 
+  pull(geometry) %>% 
+  st_union() %>% 
+  st_transform(crs = 4326)
+
+point <- st_point(x = c(9.98, 48.40)) %>% st_sfc(crs = 4326)
+distance <- st_distance(street, point)
+
+circle <- point %>% st_buffer(distance)
+
+
+ggmap(background_data) +
+  geom_sf(
+    data = street_lines_ulm, 
+    inherit.aes = F,
+    size = 0.75
+  ) +
+  geom_sf(
+    data = point, 
+    inherit.aes = F,
+    col = 'red',
+    size = 3
+  ) +
+  geom_sf(
+    data = street, 
+    inherit.aes = F,
+    col = 'red',
+    size = 1
+  ) +
+  geom_sf(
+    data = circle, 
+    inherit.aes = F,
+    col = 'blue',
+    size = 1,
+    fill = NA
+  ) +
+  annotate(
+    'label',
+    x = 9.98,
+    y = 48.40 + 0.0025,
+    label = paste0(distance %>% round(), 'm')
+  )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

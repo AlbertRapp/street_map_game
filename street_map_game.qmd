@@ -1,0 +1,152 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+## Load Packages
+
+```{r}
+setwd(here::here('street_map_game/'))
+library(tidyverse)
+library(sf)
+library(osmdata)
+library(ggmap)
+```
+
+## Query street data from OpenStreetMap
+
+```{r}
+# Set bounding box.
+# Bounding box adjusted from getbb('Ulm')
+bbx <- matrix(
+  data = c(9.93, 10.04283, 48.37, 48.44),
+  nrow = 2,
+  ncol = 2,
+  byrow = T,
+  dimnames = list(c('x', 'y'), c('min', 'max'))
+)
+
+# Build query for streets
+# Features https://wiki.openstreetmap.org/wiki/Map_features#Roads
+query <- bbx %>% 
+  opq() %>% 
+  add_osm_feature(
+    key = 'highway',  
+    value = c('motorway', 'trunk', 'primary', 'secondary', 
+              'tertiary', 'unclassified', 'residential',
+              'motorway_link', 'trunk_link', 'primary_link', 
+              'secondary_link')
+  )
+
+# Get data from Openstreetmap
+sf_data <- osmdata_sf(query)
+# Object of class 'osmdata' with:
+#                  $bbox : 48.37,9.93,48.44,10.04283
+#         $overpass_call : The call submitted to the overpass API
+#                  $meta : metadata including timestamp and version numbers
+#            $osm_points : 'sf' Simple Features Collection with 21143 points
+#             $osm_lines : 'sf' Simple Features Collection with 3927 linestrings
+#          $osm_polygons : 'sf' Simple Features Collection with 13 polygons
+#        $osm_multilines : NULL
+#     $osm_multipolygons : NULL
+```
+
+## Make sure that we only use streets from Ulm and not the adjacent Neu-Ulm (New Ulm)
+
+```{r}
+# New query for administrative boundaries
+ulm_boundary_query <- getbb('Ulm') %>% 
+  opq() %>% 
+  add_osm_feature(
+    key = 'boundary',  
+    value = 'administrative'
+  )
+ulm_boundary <- osmdata_sf(ulm_boundary_query)
+
+# Find Ulm's boundaries via filter()
+boundary <- ulm_boundary$osm_multipolygons %>% 
+  filter(name == 'Ulm') %>% 
+  pull(geometry)
+
+# Find streets (lines) in results from previous query that are within Ulm's boundaries
+# Key function st_contains() from {sf}
+indices_in_ulm <- st_contains(boundary, sf_data$osm_lines) %>% unlist()
+street_lines_ulm <- sf_data$osm_lines %>% slice(indices_in_ulm)
+```
+
+## Draw a map with a highlighted street
+
+```{r}
+# Filter specific street
+street <- street_lines_ulm %>% 
+  filter(str_detect(name, 'Zinglerstr')) %>% 
+  pull(geometry) %>% 
+  st_union() 
+  # Streets can be represented by multiple lines so throw them together
+
+#our background map
+background_map <- get_map(bbx, maptype = "toner-background")
+
+# inherit.aes must be false
+ggmap(background_map) +
+  geom_sf(data = street_lines_ulm, inherit.aes = FALSE) +
+  geom_sf(
+    data = street, 
+    inherit.aes = F, 
+    col = 'red', 
+    size = 1.5
+  ) 
+```
+
+## Imitate a point guess and compute distance to highlighted street
+
+```{r}
+# Create point with st_point() from {sf}
+# Make sure every geometry uses same coordinate reference system (CRS)
+point_guess <- st_point(c(9.96, 48.405)) %>% st_sfc(crs = 4326) 
+street_crs_corrected <- st_transform(street, crs = 4326)
+# Compute distance with st_distance from {sf}
+distance <-  st_distance(point_guess, street_crs_corrected)
+distance
+# Units: [m]
+#          [,1]
+# [1,] 1966.924
+```
+
+## Create circle with radius of previously calculated distance
+## Plot everything into one image.
+
+```{r}
+circle <- point_guess %>% st_buffer(distance)
+
+ggmap(background_map) +
+  geom_sf(data = street_lines_ulm, inherit.aes = FALSE) +
+  geom_sf(
+    data = street, 
+    inherit.aes = F, 
+    col = 'red', 
+    size = 1.5
+  )  +
+  geom_sf(
+    data = circle, 
+    inherit.aes = F, 
+    col = 'blue', 
+    size = 1.5, 
+    fill = NA
+  ) +
+  geom_sf(
+    data = point_guess, 
+    inherit.aes = F, 
+    col = 'blue', 
+    size = 2, 
+    fill = NA
+  ) +
+  annotate(
+    'label',
+    x = 9.96,
+    y = 48.405 + 0.0025,
+    label = glue::glue('Distance: {round(distance,2)}m'),
+  )
+```
+

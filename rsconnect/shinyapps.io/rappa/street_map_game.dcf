@@ -1,0 +1,13 @@
+name: street_map_game
+title: street_map_game
+username:
+account: rappa
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 6544772
+bundleId: 6042067
+url: https://rappa.shinyapps.io/street_map_game/
+when: 1656148332.43874
+lastSyncTime: 1656148332.43875
+asMultiple: FALSE
+asStatic: FALSE
